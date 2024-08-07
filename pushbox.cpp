@@ -28,9 +28,10 @@ struct Coord {
  *********************************/
 class Pusher;
 class Box;
+class Cursor;
 class Field {
-friend void draw(const Field *field, const Pusher *pusher, std::vector<Box *> &boxes);
-
+friend void draw(const Field *field, const Pusher *pusher, std::vector<Box *> *boxes);
+friend void draw(const Field *field, const Pusher *pusher, std::vector<Box *> *boxes, Cursor cursor);
 public:
     Field(int r, int c);
     void set_bound(std::vector<Coord> bounds);
@@ -83,7 +84,8 @@ enum Motion {
 };
 
 class Box {
-friend void draw(const Field *field, const Pusher *pusher, std::vector<Box *> &boxes);
+friend void draw(const Field *field, const Pusher *pusher, std::vector<Box *> *boxes);
+friend void draw(const Field *field, const Pusher *pusher, std::vector<Box *> *boxes, Cursor cursor);
 
 public:
     Box(Coord start_coord);
@@ -144,7 +146,8 @@ bool Box::motion(Motion m, std::vector<Box *> &boxes) {
 }
 
 class Pusher {
-friend void draw(const Field *field, const Pusher *pusher, std::vector<Box *> &boxes);
+friend void draw(const Field *field, const Pusher *pusher, std::vector<Box *> *boxes);
+friend void draw(const Field *field, const Pusher *pusher, std::vector<Box *> *boxes, Cursor cursor);
 
 public:
     Pusher(Coord start_coord);
@@ -204,19 +207,68 @@ bool Pusher::motion(Motion m, std::vector<Box *> &boxes) {
     return false;
 }
 
-void draw(const Field *field, const Pusher *pusher, std::vector<Box *> &boxes) {
+void draw(const Field *field, const Pusher *pusher, std::vector<Box *> *boxes) {
     system("cls");
-    std::vector<std::vector<char>> frame = std::vector<std::vector<char>>(buf_height, std::vector<char>(buf_width, ' '));
+    std::vector<std::vector<char>> frame (buf_height, std::vector<char>(buf_width, ' '));
     for (const auto &coord : field->bounds) {
         frame[coord.row + row_off][coord.col + col_off] = '*';
     }
+    if (pusher) {
     frame[pusher->row + row_off][pusher->col + col_off] = '@';
+    }
     for (const auto &target : field->targets) {
         frame[target.row + row_off][target.col + col_off] = '$';
     }
-    for (Box *box : boxes) {
-        frame[box->row + row_off][box->col + col_off] = '#';
+    if (boxes) {
+        for (Box *box : *boxes) {
+            frame[box->row + row_off][box->col + col_off] = '#';
+        }
     }
+    for (const auto &row : frame) {
+        for (const auto &elem : row) {
+            std::cout << elem;
+        }
+        std::cout << '\n';
+    }
+}
+
+/*******************************************************************
+ * Extension:
+ *  Enable to set box, pusher and boundaries in the terminal
+ *  ****************************************************************/
+
+class Cursor {
+public:
+    void motion(Motion m);
+    Cursor(int r, int c, int maxr, int maxc): row(r), col(c), max_rows(maxr), max_cols(maxc) { }
+    Cursor(int maxr, int maxc): row(0), col(0), max_rows(maxr), max_cols(maxc) { }
+    int get_row() { return row; }
+    int get_col() { return col; }
+//private:
+    int row;
+    int col;
+    int max_rows;
+    int max_cols;
+};
+ 
+void draw(const Field *field, const Pusher *pusher, std::vector<Box *> *boxes, Cursor cursor) {
+    system("cls");
+    std::vector<std::vector<char>> frame (buf_height, std::vector<char>(buf_width, ' '));
+    for (const auto &coord : field->bounds) {
+        frame[coord.row + row_off][coord.col + col_off] = '*';
+    }
+    if (pusher) {
+    frame[pusher->row + row_off][pusher->col + col_off] = '@';
+    }
+    for (const auto &target : field->targets) {
+        frame[target.row + row_off][target.col + col_off] = '$';
+    }
+    if (boxes) {
+        for (Box *box : *boxes) {
+            frame[box->row + row_off][box->col + col_off] = '#';
+        }
+    }
+    frame[cursor.get_row() + row_off][cursor.get_col() + col_off] = '?';
     for (const auto &row : frame) {
         for (const auto &elem : row) {
             std::cout << elem;
@@ -234,22 +286,137 @@ bool check(Field *field, const std::vector<Box *> &boxes) {
     return true;
 }
 
+void Cursor::motion(Motion m) {
+    switch (m) {
+        case UP:
+            if (row > 0) {
+                row -= 1;
+            }
+            break;
+        case DOWN:
+            if (row < max_rows - 2) {
+                row += 1;
+            }
+            break;
+        case LEFT:
+            if (col > 0) {
+                col -= 1;
+            }
+            break;
+        case RIGHT:
+            if (col < max_cols - 2) {
+                col += 1;
+            }
+            break;
+    }
+}
+
+// Step 1: set boundaries.
+void draw_bounds(const std::vector<Coord> &bounds, Cursor cursor) {
+    system("cls");
+    std::vector<std::vector<char>> frame(buf_height, std::vector<char>(buf_width, ' '));
+    for (const auto &coord : bounds) {
+        frame[coord.row + row_off][coord.col + col_off] = '*';
+    } 
+    frame[cursor.get_row() + row_off][cursor.get_col() + col_off] = '?';
+    for (const auto &row : frame) {
+        for (const auto &elem : row) {
+            std::cout << elem;
+        }
+        std::cout << '\n';
+    }
+    std::cout << cursor.get_row() << " < " << cursor.max_rows << " ?\n";
+    std::cout << "frame height: " << frame.size() << "\n";
+}
+
+Field *input_field() {
+    Cursor cursor(0, 0, buf_height, buf_width);
+    std::vector<Coord> bounds;
+    while (1) {
+        draw_bounds(bounds, cursor);                
+        char ch;
+        std::cin >> ch;
+        if (ch == '!') {
+            break;
+        }
+        switch (ch) {
+            case 'h':
+                cursor.motion(LEFT);
+                break;
+            case 'j':
+                cursor.motion(DOWN);
+                break;
+            case 'k':
+                cursor.motion(UP);
+                break;
+            case 'l':
+                cursor.motion(RIGHT);
+                break;
+            case '*':
+                bounds.emplace_back(cursor.get_row(), cursor.get_col()); 
+                break;
+        }
+    }
+    Field *field = new Field(10, 10);
+    field->set_bound(bounds);
+    return field;
+}
+
+
+std::vector<Box *> *input_box(Field *field) {
+    Cursor cursor(0, 0, buf_height, buf_width);
+    std::vector<Box *> *boxes = new std::vector<Box *>();
+    while(1) {
+        draw(field, nullptr, boxes, cursor);
+        char ch;
+        std::cin >> ch;
+        if (ch  == '!') {
+            break;
+        }
+        switch (ch) {
+            case 'h':
+                cursor.motion(LEFT);
+                break;
+            case 'j':
+                cursor.motion(DOWN);
+                break;
+            case 'k':
+                cursor.motion(UP);
+                break;
+            case 'l':
+                cursor.motion(RIGHT);
+                break;
+            case '#':
+                if (!field->is_bound(cursor.get_row(), cursor.get_col())) {
+                    Box *box = new Box(Coord(cursor.get_row(), cursor.get_col()), field);
+                    boxes->push_back(box);
+                }
+                break;
+        }
+    }
+    return boxes;
+}
+
 int main() {
-    Field *field = new Field(8, 8);
+    Field *field = input_field();
+/*
     std::vector<Coord> bounds { {0, 0}, {1, 0}, {2, 0}, {3, 0}, {4, 0},
                                 {5, 0}, {6, 0}, {7, 0}, {0, 1}, {0, 2},
                                 {0, 3}, {0, 4}, {0, 5}, {0, 6}, {0, 7}, 
                                 {7, 1}, {7, 2}, {7, 3}, {7, 4}, {7, 5}, 
                                 {7, 6}, {7, 7}, {1, 7}, {2, 7}, {3, 7}, 
                                 {4, 7}, {5, 7}, {6, 7}, };
-    field->set_bound(bounds);
+*/
+//    field->set_bound(bounds);
     field->set_target(5, 6);
     field->set_target(2, 2);
-    Box *box_1 = new Box(Coord{4, 4}, field);
-    Box *box_2 = new Box(Coord{3, 3}, field);
+//    Box *box_1 = new Box(Coord{4, 4}, field);
+//    Box *box_2 = new Box(Coord{3, 3}, field);
+//
+    std::vector<Box *> *boxes = input_box(field);
     Pusher *pusher = new Pusher(Coord{1, 1}, field);
-    std::vector<Box *> *boxes = new std::vector<Box *>{box_1, box_2};
-    draw(field, pusher, *boxes);
+//    std::vector<Box *> *boxes = new std::vector<Box *>{box_1, box_2};
+    draw(field, pusher, boxes);
     Motion m;
     while(1) {
         if(check(field, *boxes)) {
@@ -273,7 +440,7 @@ int main() {
                 break;
         }
         pusher->motion(m, *boxes);
-        draw(field, pusher, *boxes);
+        draw(field, pusher, boxes);
 //        std::cout << box->get_row() << ", " << box->get_col() << '\n';
 //        std::cout << pusher->get_row() << ", " << pusher->get_col() << '\n';
     }
